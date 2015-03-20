@@ -3,6 +3,7 @@
 """
 Usage:
     exiftoold [-n num_workers]
+    exiftoold query <filename>
 
 Options:
     -n num_workers    Number of exiftool processes to spawn [default: 2]
@@ -23,6 +24,34 @@ EXIF_COMMAND = \
     '/usr/bin/env exiftool -stay_open True -@ - -common_args  -j -b -g'
 
 
+def massage_exif(data):
+    data = data[0]
+
+    if 'File' in data:
+        sub = data['File']
+        for key, target in [
+            ('ImageWidth', 'PixelWidth'),
+            ('ImageHeight', 'PixelHeight'),
+            ('FileType', 'FileType'),
+            ('MIMEType', 'MIMEType'),
+            ('BitsPerSample', 'Depth'),
+            ('ColorComponents', 'ColorComponents'),
+        ]:
+            if key in sub:
+                data[target] = sub[key]
+        del data['File']
+
+    data.pop('SourceFile')
+    data.pop('ExifTool')
+
+    if 'ICC_Profile' in data:
+        sub = data['ICC_Profile']
+        if 'ProfileDescription' in sub:
+            data['ProfileName'] = sub['ProfileDescription']
+
+    return data
+
+
 class Exifd(object):
     def __init__(self, h):
         self.h = h
@@ -41,22 +70,29 @@ class Exifd(object):
         response = self.stream.recv_partition('\n{ready}\n')
         try:
             response = cjson.decode(response)
-            # strip wrapper
-            response = response[0]
+            response = massage_exif(response)
             response = cjson.encode(response)
         except cjson.DecodeError:
             response = cjson.encode({'error': response.strip()})
         return response
 
 
-def main(argv):
+def do_query(filename):
+    h = vanilla.Hub()
+    conn = h.tcp.connect(host='127.0.0.1', port=9000)
+    conn.send(filename+'\n')
+    print conn.recv_partition('\n')
+    conn.close
+
+
+def do_serve(num_workers):
     h = vanilla.Hub()
 
-    NUM_WORKERS = int(argv['-n'])
-    print 'Spawning %s workers...' % NUM_WORKERS
-    workers = h.channel(NUM_WORKERS)
-    for i in xrange(NUM_WORKERS):
+    print 'spawning %s workers...' % num_workers
+    workers = h.channel(num_workers)
+    for i in xrange(num_workers):
         workers.send(Exifd(h))
+    print
 
     class Stats(object):
         def __init__(self):
@@ -85,7 +121,7 @@ def main(argv):
             return
 
     server = h.tcp.listen(port=9000)
-    print 'Listening on 127.0.0.1:%s' % server.port
+    print 'listening on 127.0.0.1:%s' % server.port
 
     @h.spawn
     def _():
@@ -94,6 +130,13 @@ def main(argv):
             h.spawn(serve, conn)
 
     h.stop_on_term()
+
+
+def main(argv):
+    if argv['query']:
+        return do_query(argv['<filename>'])
+
+    return do_serve(int(argv['-n']))
 
 
 if __name__ == '__main__':
