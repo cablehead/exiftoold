@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+
+
+import collections
+import shlex
+import sys
+
+import cjson
+
+import vanilla
+
+
+EXIF_COMMAND = '/usr/bin/exiftool -stay_open True -@ - -common_args  -j -b -g'
+
+
+class Exifd(object):
+    def __init__(self, h):
+        self.h = h
+        self.responses = collections.deque()
+        self.child = self.h.process.execv(shlex.split(EXIF_COMMAND))
+
+        self.requests = self.h.router().pipe(self.child.stdin)
+
+        sender, recver = self.h.router()
+        self.child.stdout.pipe(sender)
+        self.child.stderr.pipe(sender)
+
+        # TODO: ganky
+        import vanilla.message
+        stream = vanilla.message.Stream(recver)
+
+        @self.h.spawn
+        def _():
+            while True:
+                try:
+                    response = stream.recv_partition('\n{ready}\n')
+                except vanilla.Halt:
+                    return
+
+                try:
+                    response = cjson.decode(response)
+                    # strip wrapper
+                    response = response[0]
+                    response = cjson.encode(response)
+                except cjson.DecodeError:
+                    response = cjson.encode({'error': response.strip()})
+
+                sender = self.responses.popleft()
+                sender.send(response)
+                sender.close()
+
+    def query(self, name):
+        sender, recver = self.h.pipe()
+        self.responses.append(sender)
+        self.requests.send('%s\n-execute\n' % name)
+        return recver
+
+
+def main():
+    h = vanilla.Hub()
+
+    exifd = Exifd(h)
+
+    server = h.tcp.listen(port=9000)
+    print 'Listening on 127.0.0.1:%s' % server.port
+
+    def serve(conn):
+        try:
+            while True:
+                name = conn.recv_partition('\n')
+                response = exifd.query(name).recv()
+                conn.send(response)
+                conn.send('\n')
+        except vanilla.Halt:
+            conn.close()
+            return
+
+    @h.spawn
+    def _():
+        while True:
+            conn = server.recv()
+            h.spawn(serve, conn)
+
+    h.stop_on_term()
+
+
+if __name__ == '__main__':
+    import logging
+    logging.basicConfig()
+    sys.exit(main())
