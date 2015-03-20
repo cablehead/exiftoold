@@ -3,7 +3,8 @@
 """
 Usage:
     exiftoold [-n num_workers]
-    exiftoold query <filename>
+    exiftoold query <source>
+    exiftoold strip <source> <target>
 
 Options:
     -n num_workers    Number of exiftool processes to spawn [default: 2]
@@ -20,8 +21,7 @@ import cjson
 import vanilla
 
 
-EXIF_COMMAND = \
-    '/usr/bin/env exiftool -stay_open True -@ - -common_args -j -b -g'
+EXIF_COMMAND = '/usr/bin/env exiftool -stay_open True -@ -'
 
 
 def massage_exif(data):
@@ -49,8 +49,8 @@ def massage_exif(data):
             data['ProfileName'] = sub['ProfileDescription']
 
     data.get('Composite', {}).pop('ThumbnailImage', None)
-    data.get('Exif', {}).pop('ThumbnailLength', None)
-    data.get('Exif', {}).pop('ThumbnailOffset', None)
+    data.get('EXIF', {}).pop('ThumbnailLength', None)
+    data.get('EXIF', {}).pop('ThumbnailOffset', None)
 
     return data
 
@@ -61,9 +61,25 @@ class Exifd(object):
         self.child = self.h.process.execv(
             shlex.split(EXIF_COMMAND), stderrtoout=True)
 
-    def query(self, name):
-        self.child.stdin.send('%s\n-execute\n' % name)
-        response = self.child.stdout.recv_partition('\n{ready}\n')
+    def execute(self, *args):
+        command = '\n'.join(list(args) + ['-execute']) + '\n'
+        self.child.stdin.send(command)
+        return self.child.stdout.recv_partition('\n{ready}\n')
+
+    def strip(self, source, target):
+        response = self.execute(
+            '-all=',
+            '-Adobe:all=',
+            '--ICC_Profile:all',
+            '--EXIF:all',
+            source,
+            '-out',
+            target,
+            )
+        return cjson.encode({'status': response.strip()})
+
+    def query(self, source):
+        response = self.execute('-j', '-b', '-g', source)
         try:
             response = cjson.decode(response)
             response = massage_exif(response)
@@ -73,10 +89,18 @@ class Exifd(object):
         return response
 
 
-def do_query(filename):
+def do_query(source):
     h = vanilla.Hub()
     conn = h.tcp.connect(host='127.0.0.1', port=9000)
-    conn.send(filename+'\n')
+    conn.send('q\n'+source+'\n')
+    print conn.recv_partition('\n')
+    conn.close
+
+
+def do_strip(source, target):
+    h = vanilla.Hub()
+    conn = h.tcp.connect(host='127.0.0.1', port=9000)
+    conn.send('s\n'+source+'\n'+target+'\n')
     print conn.recv_partition('\n')
     conn.close
 
@@ -85,6 +109,7 @@ def do_serve(num_workers):
     h = vanilla.Hub()
 
     print 'spawning %s workers...' % num_workers
+    # TODO: really want a resource pool primitive
     workers = h.channel(num_workers)
     for i in xrange(num_workers):
         workers.send(Exifd(h))
@@ -105,13 +130,28 @@ def do_serve(num_workers):
     def serve(conn):
         try:
             while True:
-                name = conn.recv_partition('\n')
-                worker = workers.recv()
-                response = worker.query(name)
-                workers.send(worker)
+                command = conn.recv_partition('\n')
+                if command == 'q':
+                    source = conn.recv_partition('\n')
+                    worker = workers.recv()
+                    response = worker.query(source)
+                    workers.send(worker)
+
+                elif command == 's':
+                    source = conn.recv_partition('\n')
+                    target = conn.recv_partition('\n')
+                    worker = workers.recv()
+                    response = worker.strip(source, target)
+                    workers.send(worker)
+
+                else:
+                    response = cjson.encode(
+                        {'error': 'unknown command: %s' % command})
+
                 conn.send(response)
                 conn.send('\n')
                 stats.requests += 1
+
         except vanilla.Halt:
             conn.close()
             return
@@ -130,7 +170,10 @@ def do_serve(num_workers):
 
 def main(argv):
     if argv['query']:
-        return do_query(argv['<filename>'])
+        return do_query(argv['<source>'])
+
+    if argv['strip']:
+        return do_strip(argv['<source>'], argv['<target>'])
 
     return do_serve(int(argv['-n']))
 
