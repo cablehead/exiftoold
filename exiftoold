@@ -46,7 +46,9 @@ class Exifd(object):
 def main():
     h = vanilla.Hub()
 
-    exifd = Exifd(h)
+    workers = h.queue(10).pipe(h.dealer())
+    for i in xrange(10):
+        workers.send(Exifd(h))
 
     server = h.tcp.listen(port=9000)
     print 'Listening on 127.0.0.1:%s' % server.port
@@ -56,9 +58,12 @@ def main():
             while True:
                 name = conn.recv_partition('\n')
                 print name
-                response = exifd.query(name)
+                worker = workers.recv()
+                response = worker.query(name)
+                workers.send(worker)
                 conn.send(response)
                 conn.send('\n')
+
         except vanilla.Halt:
             conn.close()
             return
