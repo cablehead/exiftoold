@@ -29,9 +29,7 @@ class Exifd(object):
 
     def query(self, name):
         self.child.stdin.send('%s\n-execute\n' % name)
-
         response = self.stream.recv_partition('\n{ready}\n')
-
         try:
             response = cjson.decode(response)
             # strip wrapper
@@ -39,7 +37,6 @@ class Exifd(object):
             response = cjson.encode(response)
         except cjson.DecodeError:
             response = cjson.encode({'error': response.strip()})
-
         return response
 
 
@@ -63,7 +60,6 @@ def main():
                 workers.send(worker)
                 conn.send(response)
                 conn.send('\n')
-
         except vanilla.Halt:
             conn.close()
             return
