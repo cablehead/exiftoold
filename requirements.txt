@@ -1,0 +1,3 @@
+docopt
+python-cjson
+vanilla>=0.1.5
