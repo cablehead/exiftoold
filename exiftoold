@@ -10,7 +10,8 @@ import cjson
 import vanilla
 
 
-EXIF_COMMAND = '/usr/bin/exiftool -stay_open True -@ - -common_args  -j -b -g'
+EXIF_COMMAND = \
+    '/usr/bin/env exiftool -stay_open True -@ - -common_args  -j -b -g'
 
 
 class Exifd(object):
