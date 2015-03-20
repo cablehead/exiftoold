@@ -50,16 +50,28 @@ def main():
     server = h.tcp.listen(port=9000)
     print 'Listening on 127.0.0.1:%s' % server.port
 
+    class Stats(object):
+        def __init__(self):
+            self.requests = 0
+
+            @h.spawn
+            def _():
+                for _ in h.pulse(1000):
+                    print 'requests_per_second:%s' % self.requests
+                    self.requests = 0
+
+    stats = Stats()
+
     def serve(conn):
         try:
             while True:
                 name = conn.recv_partition('\n')
-                print name
                 worker = workers.recv()
                 response = worker.query(name)
                 workers.send(worker)
                 conn.send(response)
                 conn.send('\n')
+                stats.requests += 1
         except vanilla.Halt:
             conn.close()
             return
@@ -69,6 +81,7 @@ def main():
         while True:
             conn = server.recv()
             h.spawn(serve, conn)
+
 
     h.stop_on_term()
 
