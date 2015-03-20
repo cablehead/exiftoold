@@ -21,14 +21,14 @@ import vanilla
 
 
 EXIF_COMMAND = \
-    '/usr/bin/env exiftool -stay_open True -@ - -common_args  -j -b -g'
+    '/usr/bin/env exiftool -stay_open True -@ - -common_args -j -b -g'
 
 
 def massage_exif(data):
     data = data[0]
 
-    if 'File' in data:
-        sub = data['File']
+    sub = data.pop('File', None)
+    if sub:
         for key, target in [
             ('ImageWidth', 'PixelWidth'),
             ('ImageHeight', 'PixelHeight'),
@@ -39,15 +39,18 @@ def massage_exif(data):
         ]:
             if key in sub:
                 data[target] = sub[key]
-        del data['File']
 
-    data.pop('SourceFile')
-    data.pop('ExifTool')
+    data.pop('SourceFile', None)
+    data.pop('ExifTool', None)
 
-    if 'ICC_Profile' in data:
-        sub = data['ICC_Profile']
+    sub = data.pop('ICC_Profile', None)
+    if sub:
         if 'ProfileDescription' in sub:
             data['ProfileName'] = sub['ProfileDescription']
+
+    data.get('Composite', {}).pop('ThumbnailImage', None)
+    data.get('Exif', {}).pop('ThumbnailLength', None)
+    data.get('Exif', {}).pop('ThumbnailOffset', None)
 
     return data
 
