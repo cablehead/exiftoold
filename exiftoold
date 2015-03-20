@@ -43,7 +43,7 @@ class Exifd(object):
 def main():
     h = vanilla.Hub()
 
-    workers = h.queue(10).pipe(h.dealer())
+    workers = h.channel(10)
     for i in xrange(10):
         workers.send(Exifd(h))
 

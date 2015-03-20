@@ -9,7 +9,7 @@ import vanilla
 def main():
     h = vanilla.Hub()
     conn = h.tcp.connect(host='127.0.0.1', port=9000)
-    for i in xrange(100):
+    for i in xrange(1000):
         conn.send('foo.png\n')
         conn.recv_partition('\n')
 
