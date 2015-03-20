@@ -17,44 +17,30 @@ EXIF_COMMAND = \
 class Exifd(object):
     def __init__(self, h):
         self.h = h
-        self.responses = collections.deque()
+
         self.child = self.h.process.execv(shlex.split(EXIF_COMMAND))
 
-        self.requests = self.h.router().pipe(self.child.stdin)
-
+        # TODO: ganky
         sender, recver = self.h.router()
         self.child.stdout.pipe(sender)
         self.child.stderr.pipe(sender)
-
-        # TODO: ganky
         import vanilla.message
-        stream = vanilla.message.Stream(recver)
-
-        @self.h.spawn
-        def _():
-            while True:
-                try:
-                    response = stream.recv_partition('\n{ready}\n')
-                except vanilla.Halt:
-                    return
-
-                try:
-                    response = cjson.decode(response)
-                    # strip wrapper
-                    response = response[0]
-                    response = cjson.encode(response)
-                except cjson.DecodeError:
-                    response = cjson.encode({'error': response.strip()})
-
-                sender = self.responses.popleft()
-                sender.send(response)
-                sender.close()
+        self.stream = vanilla.message.Stream(recver)
 
     def query(self, name):
-        sender, recver = self.h.pipe()
-        self.responses.append(sender)
-        self.requests.send('%s\n-execute\n' % name)
-        return recver
+        self.child.stdin.send('%s\n-execute\n' % name)
+
+        response = self.stream.recv_partition('\n{ready}\n')
+
+        try:
+            response = cjson.decode(response)
+            # strip wrapper
+            response = response[0]
+            response = cjson.encode(response)
+        except cjson.DecodeError:
+            response = cjson.encode({'error': response.strip()})
+
+        return response
 
 
 def main():
@@ -69,7 +55,8 @@ def main():
         try:
             while True:
                 name = conn.recv_partition('\n')
-                response = exifd.query(name).recv()
+                print name
+                response = exifd.query(name)
                 conn.send(response)
                 conn.send('\n')
         except vanilla.Halt:
