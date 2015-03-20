@@ -9,8 +9,9 @@ import vanilla
 def main():
     h = vanilla.Hub()
     conn = h.tcp.connect(host='127.0.0.1', port=9000)
-    conn.send('giphy.gif\n')
-    print conn.recv_partition('\n')
+    for i in xrange(100):
+        conn.send('foo.png\n')
+        conn.recv_partition('\n')
 
 
 if __name__ == '__main__':
