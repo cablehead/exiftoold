@@ -58,19 +58,12 @@ def massage_exif(data):
 class Exifd(object):
     def __init__(self, h):
         self.h = h
-
-        self.child = self.h.process.execv(shlex.split(EXIF_COMMAND))
-
-        # TODO: ganky
-        sender, recver = self.h.router()
-        self.child.stdout.pipe(sender)
-        self.child.stderr.pipe(sender)
-        import vanilla.message
-        self.stream = vanilla.message.Stream(recver)
+        self.child = self.h.process.execv(
+            shlex.split(EXIF_COMMAND), stderrtoout=True)
 
     def query(self, name):
         self.child.stdin.send('%s\n-execute\n' % name)
-        response = self.stream.recv_partition('\n{ready}\n')
+        response = self.child.stdout.recv_partition('\n{ready}\n')
         try:
             response = cjson.decode(response)
             response = massage_exif(response)
