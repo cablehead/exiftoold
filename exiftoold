@@ -43,8 +43,8 @@ class Exifd(object):
 def main():
     h = vanilla.Hub()
 
-    workers = h.channel(10)
-    for i in xrange(10):
+    workers = h.channel(4)
+    for i in xrange(4):
         workers.send(Exifd(h))
 
     server = h.tcp.listen(port=9000)
