@@ -1,10 +1,19 @@
 #!/usr/bin/env python
 
+"""
+Usage:
+    exiftoold [-n num_workers]
+
+Options:
+    -n num_workers    Number of exiftool processes to spawn [default: 2]
+"""
+
 
 import collections
 import shlex
 import sys
 
+import docopt
 import cjson
 
 import vanilla
@@ -40,15 +49,14 @@ class Exifd(object):
         return response
 
 
-def main():
+def main(argv):
     h = vanilla.Hub()
 
-    workers = h.channel(4)
-    for i in xrange(4):
+    NUM_WORKERS = int(argv['-n'])
+    print 'Spawning %s workers...' % NUM_WORKERS
+    workers = h.channel(NUM_WORKERS)
+    for i in xrange(NUM_WORKERS):
         workers.send(Exifd(h))
-
-    server = h.tcp.listen(port=9000)
-    print 'Listening on 127.0.0.1:%s' % server.port
 
     class Stats(object):
         def __init__(self):
@@ -56,8 +64,8 @@ def main():
 
             @h.spawn
             def _():
-                for _ in h.pulse(1000):
-                    print 'requests_per_second:%s' % self.requests
+                for _ in h.pulse(10*1000):
+                    print 'stats: period=10s requests=%s' % self.requests
                     self.requests = 0
 
     stats = Stats()
@@ -76,12 +84,14 @@ def main():
             conn.close()
             return
 
+    server = h.tcp.listen(port=9000)
+    print 'Listening on 127.0.0.1:%s' % server.port
+
     @h.spawn
     def _():
         while True:
             conn = server.recv()
             h.spawn(serve, conn)
-
 
     h.stop_on_term()
 
@@ -89,4 +99,5 @@ def main():
 if __name__ == '__main__':
     import logging
     logging.basicConfig()
-    sys.exit(main())
+    argv = docopt.docopt(__doc__)
+    sys.exit(main(argv))
